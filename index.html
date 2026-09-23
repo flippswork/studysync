@@ -1,0 +1,65 @@
+<!-- Supabase JS Client Library -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+  // 1. Initialize Supabase
+  const SUPABASE_URL = 'https://xxhvaoqikbzjuakdkwjt.supabase.co'; // Replace with your Project URL
+  const SUPABASE_KEY = 'sb_publishable_J8YKQqLbW_Jd6yvovoJC6A_6PiE58kG';                        // Replace with your anon public key
+  
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // 2. Function to load all friends and their timetables from Supabase
+  async function syncFromDatabase() {
+    // Fetch friends
+    const { data: friendsData, error: friendsError } = await supabase
+      .from('friends')
+      .select('*');
+
+    if (friendsError) {
+      console.error('Error fetching friends:', friendsError);
+      return;
+    }
+
+    // Fetch schedules
+    const { data: scheduleData, error: scheduleError } = await supabase
+      .from('schedules')
+      .select('*');
+
+    if (scheduleError) {
+      console.error('Error fetching schedules:', scheduleError);
+      return;
+    }
+
+    console.log('Synced Friends:', friendsData);
+    console.log('Synced Schedules:', scheduleData);
+    
+    // Pass this data into your UI render logic
+    // renderHeatmap(friendsData, scheduleData);
+  }
+
+  // 3. Function to toggle/update a period status when clicked
+  async function updatePeriod(friendId, dayIndex, periodIndex, status) {
+    const { data, error } = await supabase
+      .from('schedules')
+      .upsert({
+        friend_id: friendId,
+        day_index: dayIndex,
+        period_index: periodIndex,
+        status: status
+      }, { onConflict: 'friend_id,day_index,period_index' });
+
+    if (error) console.error('Error updating status:', error);
+  }
+
+  // 4. Realtime Subscription: Refresh the screen automatically whenever a friend updates their timetable!
+  supabase
+    .channel('schema-db-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'schedules' }, () => {
+      console.log('A friend updated their timetable! Syncing...');
+      syncFromDatabase();
+    })
+    .subscribe();
+
+  // Load data when page opens
+  window.addEventListener('DOMContentLoaded', syncFromDatabase);
+</script>
