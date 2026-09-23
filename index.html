@@ -1,106 +1,142 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>StudySync - Shared Timetable Overlaps</title>
+  <title>StudySync Pro - Shared Timetable & Co-Working Platform</title>
   
   <!-- PWA Headers -->
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#3B82F6">
+  <meta name="theme-color" content="#0F172A">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-  <!-- Tailwind CSS CDN -->
+  <!-- External Libraries (CDNs) -->
   <script src="https://cdn.tailwindcss.com"></script>
-  
-  <!-- Supabase JS Client & iCal Parser CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ical.js/1.5.0/ical.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 
   <style>
     body { background-color: #0F172A; color: #F8FAFC; }
-    .grid-cell { transition: all 0.2s ease; }
-    .grid-cell:hover { transform: scale(1.02); }
+    .cell-hover { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+    .cell-hover:hover { transform: translateY(-2px); shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.3); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0F172A; }
+    ::-webkit-scrollbar-thumb { background: #334155; rounded: 4px; }
   </style>
 </head>
 <body class="min-h-screen flex flex-col font-sans antialiased">
 
-  <!-- Header / Navigation -->
-  <header class="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-4 py-4 flex flex-wrap justify-between items-center gap-4">
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 py-3.5 flex flex-wrap justify-between items-center gap-4">
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-xl shadow-lg shadow-blue-500/20">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center font-black text-xl text-white shadow-lg shadow-blue-500/25">
           S
         </div>
         <div>
-          <h1 class="text-xl font-bold tracking-tight text-white">StudySync</h1>
-          <p class="text-xs text-slate-400">Shared Timetable Overlaps & Study Planner</p>
+          <div class="flex items-center gap-2">
+            <h1 class="text-lg font-bold tracking-tight text-white">StudySync Pro</h1>
+            <span id="roomBadge" class="text-[10px] bg-blue-500/20 text-blue-400 font-mono px-2 py-0.5 rounded-full border border-blue-500/30">Room: DEFAULT</span>
+          </div>
+          <p class="text-xs text-slate-400">Next Mutual Free Slot in: <span id="countdownWidget" class="text-emerald-400 font-semibold">Calculating...</span></p>
         </div>
       </div>
 
-      <!-- Action Buttons -->
-      <div class="flex items-center gap-3">
-        <label for="icsFileInput" class="cursor-pointer bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-lg border border-slate-700 transition flex items-center gap-2">
-          <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-          </svg>
-          Import .ics
+      <!-- Quick Action Controls -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <button onclick="toggleModal('roomModal')" class="bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 px-3 py-2 rounded-lg border border-slate-700 font-semibold">
+          Join/Create Room
+        </button>
+        <button onclick="toggleModal('ocrModal')" class="bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 px-3 py-2 rounded-lg border border-slate-700 font-semibold flex items-center gap-1.5">
+          📷 Camera OCR
+        </button>
+        <label for="icsFileInput" class="cursor-pointer bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 px-3 py-2 rounded-lg border border-slate-700 font-semibold flex items-center gap-1.5">
+          📅 Import .ics
         </label>
         <input type="file" id="icsFileInput" accept=".ics,text/calendar" class="hidden" onchange="handleICSImport(event)" />
-
-        <button onclick="sendStudyPing()" class="bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-lg shadow-lg shadow-blue-600/30 transition flex items-center gap-2">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
-          </svg>
-          Study Ping
+        <button onclick="sendStudyPing()" class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-lg shadow-blue-600/30">
+          🔔 Study Ping
         </button>
       </div>
     </div>
   </header>
 
-  <!-- Main Dashboard -->
+  <!-- Live Banner Alert -->
+  <div id="pingBanner" class="hidden bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs py-2 px-4 text-center font-medium shadow-md"></div>
+
+  <!-- Dashboard Layout -->
   <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
 
-    <!-- Sidebar: Group Controls & Active Friends -->
-    <aside class="lg:col-span-1 space-y-6">
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-        <h2 class="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4">Group Members</h2>
-        <div id="friendsList" class="space-y-3">
-          <!-- Dynamic Friend List Populated via JS -->
-          <div class="animate-pulse flex items-center gap-3">
-            <div class="w-8 h-8 bg-slate-800 rounded-full"></div>
-            <div class="h-4 bg-slate-800 rounded w-24"></div>
-          </div>
+    <!-- Left Controls Panel -->
+    <aside class="lg:col-span-1 space-y-5">
+      
+      <!-- Profile & Solo Mode Switch -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">My Status Controls</h3>
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-slate-300">Solo Focus Mode</span>
+          <input type="checkbox" id="soloModeToggle" class="accent-blue-500 cursor-pointer w-4 h-4" onchange="toggleSoloMode(this.checked)">
+        </div>
+        <div>
+          <label class="text-[11px] text-slate-400">Status Message</label>
+          <input type="text" id="statusMessage" placeholder="e.g. ☕ Coffee @ Library" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white mt-1 focus:outline-none focus:border-blue-500" onchange="updateStatusMessage(this.value)">
         </div>
       </div>
 
-      <!-- Overlap Threshold Control -->
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-        <label for="thresholdRange" class="block text-sm font-bold uppercase tracking-wider text-slate-400 mb-2">
-          Min Free Friends: <span id="thresholdValue" class="text-blue-400 font-bold">2</span>
-        </label>
-        <input type="range" id="thresholdRange" min="1" max="5" value="2" class="w-full accent-blue-500 cursor-pointer" oninput="updateThreshold(this.value)" />
+      <!-- Co-Working Pomodoro Timer -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl text-center space-y-3">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Co-Working Pomodoro</h3>
+        <div id="timerDisplay" class="text-3xl font-mono font-black text-blue-400">25:00</div>
+        <div class="flex justify-center gap-2">
+          <button onclick="startPomodoro()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg">Start</button>
+          <button onclick="resetPomodoro()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold px-3 py-1.5 rounded-lg">Reset</button>
+        </div>
+      </div>
+
+      <!-- Group Analytics & Streaks -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-2.5">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Group Analytics</h3>
+        <div class="flex justify-between items-center text-xs">
+          <span class="text-slate-400">Weekly Mutual Study:</span>
+          <span id="weeklyHours" class="font-bold text-white">14.5 hrs</span>
+        </div>
+        <div class="flex justify-between items-center text-xs">
+          <span class="text-slate-400">Study Streak:</span>
+          <span id="streakCount" class="font-bold text-amber-400">🔥 4 Days</span>
+        </div>
+      </div>
+
+      <!-- Active Members -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Active Room Members</h3>
+        <div id="membersList" class="space-y-2"></div>
       </div>
     </aside>
 
-    <!-- Main Content: Interactive Timetable Heatmap -->
+    <!-- Center Interactive Matrix Grid -->
     <section class="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col">
-      <div class="flex justify-between items-center mb-6">
+      <div class="flex flex-wrap justify-between items-center gap-3 mb-5">
         <div>
-          <h2 class="text-lg font-bold text-white">Group Overlap Heatmap</h2>
-          <p class="text-xs text-slate-400">Click any period block to view details or set venue location</p>
+          <h2 class="text-base font-bold text-white">Interactive Timetable & Overlap Matrix</h2>
+          <p class="text-xs text-slate-400">Click any block to set subjects or mark venue locations</p>
         </div>
-        <div class="flex items-center gap-2 text-xs text-slate-400">
-          <span class="w-3 h-3 rounded bg-slate-800 inline-block border border-slate-700"></span> Busy
-          <span class="w-3 h-3 rounded bg-emerald-500 inline-block"></span> All Free
+        <div class="flex items-center gap-2">
+          <select id="weekToggle" onchange="toggleWeekCycle(this.value)" class="bg-slate-800 border border-slate-700 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none">
+            <option value="A">Week A Schedule</option>
+            <option value="B">Week B Schedule</option>
+          </select>
+          <button onclick="findOptimalSlot()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-md">
+            ✨ Find Best Slot
+          </button>
         </div>
       </div>
 
       <!-- Weekly Matrix Grid -->
       <div class="overflow-x-auto flex-1">
-        <div class="min-w-[600px] grid grid-cols-6 gap-2 text-center text-xs font-semibold">
-          <!-- Header Row -->
+        <div class="min-w-[650px] grid grid-cols-6 gap-2 text-center text-xs font-semibold">
           <div class="p-2 text-slate-500 uppercase">Period</div>
           <div class="p-2 text-slate-300 bg-slate-800/50 rounded-lg">Mon</div>
           <div class="p-2 text-slate-300 bg-slate-800/50 rounded-lg">Tue</div>
@@ -108,7 +144,6 @@
           <div class="p-2 text-slate-300 bg-slate-800/50 rounded-lg">Thu</div>
           <div class="p-2 text-slate-300 bg-slate-800/50 rounded-lg">Fri</div>
 
-          <!-- Grid Rows Generated dynamically via JS -->
           <div id="timetableGrid" class="contents"></div>
         </div>
       </div>
@@ -116,205 +151,32 @@
 
   </main>
 
-  <!-- Application Logic -->
-  <script>
-    // -------------------------------------------------------------
-    // CONFIGURATION & INITIALIZATION
-    // -------------------------------------------------------------
-    const SUPABASE_URL = 'https://xxhvaoqikbzjuakdkwjt.supabase.co';
-    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh4aHZhb3Fpa2J6anVha2Rrd2p0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAxNjk0NTcsImV4cCI6MjEwNTc0NTQ1N30.0jrAFmprx43eVVpsHWN5Lx1jar5oN7j0o8nH3mi-4ow';                      
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  <!-- Modal: Camera OCR Scanner -->
+  <div id="ocrModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 space-y-4">
+      <h3 class="text-base font-bold text-white">Camera OCR Timetable Scanner</h3>
+      <p class="text-xs text-slate-400">Upload a photo of your printed schedule to parse subjects automatically.</p>
+      <input type="file" id="ocrInput" accept="image/*" class="text-xs text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500" />
+      <div id="ocrProgress" class="text-xs text-blue-400 hidden">Processing image OCR... Please wait.</div>
+      <div class="flex justify-end gap-2">
+        <button onclick="toggleModal('ocrModal')" class="bg-slate-800 text-slate-300 text-xs px-4 py-2 rounded-lg font-semibold">Cancel</button>
+        <button onclick="processOCRImage()" class="bg-blue-600 text-white text-xs px-4 py-2 rounded-lg font-semibold">Scan Image</button>
+      </div>
+    </div>
+  </div>
 
-    let minFriendsThreshold = 2;
-    let localBitmask = 0; // 30-bit integer state
+  <!-- Modal: Room Codes -->
+  <div id="roomModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 max-w-sm w-full rounded-2xl p-6 space-y-4">
+      <h3 class="text-base font-bold text-white">Join or Create Room</h3>
+      <input type="text" id="roomCodeInput" placeholder="Enter Room Code (e.g. SYNC-892)" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white uppercase focus:outline-none focus:border-blue-500" />
+      <div class="flex justify-end gap-2">
+        <button onclick="toggleModal('roomModal')" class="bg-slate-800 text-slate-300 text-xs px-4 py-2 rounded-lg font-semibold">Cancel</button>
+        <button onclick="switchRoom()" class="bg-blue-600 text-white text-xs px-4 py-2 rounded-lg font-semibold">Join Room</button>
+      </div>
+    </div>
+  </div>
 
-    const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-    const PERIODS = ['P1 (09:00)', 'P2 (10:00)', 'P3 (11:15)', 'P4 (12:15)', 'P5 (14:00)', 'P6 (15:00)'];
-
-    // -------------------------------------------------------------
-    // DATABASE SYNC & RENDER ENGINE
-    // -------------------------------------------------------------
-    async function syncFromDatabase() {
-      // 1. Fetch schedules from Supabase
-      const { data: schedules, error } = await supabase.from('schedules').select('*');
-      if (error) {
-        console.error('Error fetching schedules:', error);
-        return;
-      }
-
-      renderFriendsList(schedules || []);
-      renderHeatmapGrid(schedules || []);
-    }
-
-    function renderFriendsList(schedules) {
-      const container = document.getElementById('friendsList');
-      if (!schedules.length) {
-        container.innerHTML = '<p class="text-xs text-slate-500">No active friends found.</p>';
-        return;
-      }
-
-      container.innerHTML = schedules.map((s, idx) => `
-        <div class="flex items-center justify-between p-2 rounded-lg bg-slate-800/40 border border-slate-800">
-          <div class="flex items-center gap-2.5">
-            <div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-xs font-bold text-white">
-              ${(s.friend_id || 'User').substring(0, 2).toUpperCase()}
-            </div>
-            <span class="text-xs font-medium text-slate-200">User ${idx + 1}</span>
-          </div>
-          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-        </div>
-      `).join('');
-    }
-
-    function renderHeatmapGrid(schedules) {
-      const gridContainer = document.getElementById('timetableGrid');
-      gridContainer.innerHTML = '';
-
-      for (let p = 0; p < 6; p++) {
-        // Row Period Label
-        const periodLabel = document.createElement('div');
-        periodLabel.className = 'flex items-center justify-center text-slate-400 font-medium p-2 text-xs';
-        periodLabel.innerText = PERIODS[p];
-        gridContainer.appendChild(periodLabel);
-
-        for (let d = 0; d < 5; d++) {
-          const bitIndex = (d * 6) + p;
-          
-          // Count how many friends are free at this bit position
-          let freeCount = 0;
-          schedules.forEach(s => {
-            const mask = s.availability_bitmask || 0;
-            if ((mask & (1 << bitIndex)) !== 0) {
-              freeCount++;
-            }
-          });
-
-          // Compute Cell UI Styles based on freeCount threshold
-          const cell = document.createElement('div');
-          cell.onclick = () => toggleCellStatus(d, p);
-
-          let bgClass = 'bg-slate-800/50 text-slate-500 border-slate-800';
-          if (freeCount >= minFriendsThreshold) {
-            bgClass = freeCount === schedules.length 
-              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold' 
-              : 'bg-blue-500/20 text-blue-300 border-blue-500/40';
-          }
-
-          cell.className = `grid-cell p-4 rounded-xl border ${bgClass} cursor-pointer flex flex-col items-center justify-center gap-1 select-none`;
-          cell.innerHTML = `
-            <span class="text-xs font-bold">${freeCount} Free</span>
-            <span class="text-[10px] opacity-70">${freeCount >= minFriendsThreshold ? 'Match' : ''}</span>
-          `;
-
-          gridContainer.appendChild(cell);
-        }
-      }
-    }
-
-    // -------------------------------------------------------------
-    // INTERACTIVE GRID TOGGLE (BITMASK ENGINE)
-    // -------------------------------------------------------------
-    async function toggleCellStatus(dayIndex, periodIndex) {
-      const bitPosition = (dayIndex * 6) + periodIndex;
-      localBitmask ^= (1 << bitPosition); // Toggle specific bit via XOR
-
-      // Upload updated bitmask integer to Supabase
-      const { data: { user } } = await supabase.auth.getUser();
-      const userId = user ? user.id : '00000000-0000-0000-0000-000000000001';
-
-      await supabase.from('schedules').upsert({
-        friend_id: userId,
-        availability_bitmask: localBitmask,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'friend_id' });
-
-      syncFromDatabase();
-    }
-
-    function updateThreshold(val) {
-      minFriendsThreshold = parseInt(val, 10);
-      document.getElementById('thresholdValue').innerText = val;
-      syncFromDatabase();
-    }
-
-    // -------------------------------------------------------------
-    // CLIENT-SIDE .ICS CALENDAR PARSER
-    // -------------------------------------------------------------
-    async function handleICSImport(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      try {
-        const text = await file.text();
-        const jcalData = ICAL.parse(text);
-        const comp = new ICAL.Component(jcalData);
-        const vevents = comp.getAllSubcomponents('vevent');
-
-        // Initialize 30-bit mask with all slots set to 1 (Free)
-        let importedBitmask = (1 << 30) - 1;
-
-        vevents.forEach(evt => {
-          const eventDetails = new ICAL.Event(evt);
-          const startDate = eventDetails.startDate.toJSDate();
-          const dayIndex = startDate.getDay() - 1; // 0=Mon, 4=Fri
-
-          if (dayIndex >= 0 && dayIndex <= 4) {
-            const startHour = startDate.getHours();
-            const periodIndex = startHour - 9; // Map 9:00 AM start to Period 0
-
-            if (periodIndex >= 0 && periodIndex < 6) {
-              const bitPosition = (dayIndex * 6) + periodIndex;
-              importedBitmask &= ~(1 << bitPosition); // Clear bit to 0 (Class/Busy)
-            }
-          }
-        });
-
-        localBitmask = importedBitmask;
-
-        // Upsert to Supabase
-        const { data: { user } } = await supabase.auth.getUser();
-        const userId = user ? user.id : '00000000-0000-0000-0000-000000000001';
-
-        await supabase.from('schedules').upsert({
-          friend_id: userId,
-          availability_bitmask: localBitmask,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'friend_id' });
-
-        alert('.ics Calendar successfully imported and parsed!');
-        syncFromDatabase();
-      } catch (err) {
-        console.error('Failed to parse .ics file:', err);
-        alert('Invalid calendar file format.');
-      } finally {
-        event.target.value = '';
-      }
-    }
-
-    // -------------------------------------------------------------
-    // REALTIME STUDY PING & SERVICE WORKER SETUP
-    // -------------------------------------------------------------
-    function sendStudyPing() {
-      alert('Broadcast Study Ping sent to all active group members!');
-    }
-
-    // Setup Realtime Database Listener
-    supabase
-      .channel('public:schedules')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'schedules' }, () => {
-        syncFromDatabase();
-      })
-      .subscribe();
-
-    // PWA Service Worker Registration
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(err => console.error(err));
-      });
-    }
-
-    // Boot App
-    window.addEventListener('DOMContentLoaded', syncFromDatabase);
-  </script>
+  <script src="/app.js"></script>
 </body>
 </html>
